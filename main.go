@@ -6,34 +6,8 @@ import (
    "time"
 
    "github.com/aeden/traceroute"
+   "github.com/dblueman/pinger"
 )
-
-func dump(out traceroute.TracerouteResult) {
-   t := time.Now().Format(time.RFC1123Z)
-   fmt.Printf(" at %s\n", t)
-
-   for _, hop := range out.Hops {
-      fmt.Printf("%-3d %v (%v)  %v\n", hop.TTL, hop.HostOrAddressString(), hop.AddressString(), hop.ElapsedTime)
-   }
-
-   fmt.Println()
-}
-
-func diff(current, last traceroute.TracerouteResult) bool {
-   if len(current.Hops) != len(last.Hops) {
-      fmt.Printf("number of hops went from %d to %d", len(last.Hops), len(current.Hops))
-      return true
-   }
-
-   for i := range current.Hops {
-      if current.Hops[i].AddressString() != last.Hops[i].AddressString() {
-         fmt.Printf("hop %d changed from %s to %s", i, last.Hops[i].AddressString(), current.Hops[i].AddressString())
-         return true
-      }
-   }
-
-   return false
-}
 
 func main() {
    if len(os.Args) != 2 {
@@ -42,20 +16,36 @@ func main() {
    }
 
    target := os.Args[1]
-   var last traceroute.TracerouteResult
+
+   p, err := pinger.NewPinger(target, 1000 * time.Millisecond)
+   if err != nil {
+      fmt.Fprintln(os.Stderr, "NewPinger: "+err.Error())
+      os.Exit(1)
+   }
 
    for {
-      out, err := traceroute.Traceroute(target, &traceroute.TracerouteOptions{})
+      time.Sleep(60 * time.Second)
+
+      up, err := p.Ping()
       if err != nil {
-         fmt.Fprintln(os.Stderr, "failed: "+err.Error())
+         fmt.Fprintln(os.Stderr, "Ping: "+err.Error())
          os.Exit(1)
       }
 
-      if diff(out, last) {
-         dump(out)
-         last = out
+      if up {
+         continue
       }
 
-      time.Sleep(60 * time.Second)
+      out, err := traceroute.Traceroute(target, &traceroute.TracerouteOptions{})
+      if err != nil {
+         fmt.Fprintln(os.Stderr, "Traceroute: "+err.Error())
+         os.Exit(1)
+      }
+
+      fmt.Println("\nPing timeout at ", time.Now().Format(time.RFC1123Z))
+
+      for _, hop := range out.Hops {
+         fmt.Printf("%-3d %v (%v)  %v\n", hop.TTL, hop.HostOrAddressString(), hop.AddressString(), hop.ElapsedTime)
+      }
    }
 }
